@@ -14,6 +14,9 @@
 
 #define MAX_LINE 80
 
+#define READ_END 0
+#define WRITE_END 1
+
 typedef struct cmd_t {
     char*  cmd;
     char** params;
@@ -45,8 +48,138 @@ char** fmt_params(cmd_t* c) {
     return new_params;
 }
 
-void fmt_pipe(cmd_t* c) {
+cmd_t** fmt_pipe_cmd(cmd_t* c) {
+    printf(
+        "c cmd: %s\n", c->cmd
+    );
+    if (c->pipe_index == -1) {
+        fprintf(stderr, "error: pipe index is -1\n");
+        return NULL; 
+    }
+    cmd_t** arr = malloc(2 * sizeof(cmd_t));
+    cmd_t* c1 = malloc(sizeof(cmd_t));
+    cmd_t* c2 = malloc(sizeof(cmd_t));
+
+    c1->params = malloc(c->params_size);
+    c2->params = malloc(c->params_size);
+
+    c1->cmd = malloc(strlen(c->cmd) + 1);
+
+    c1->cmd = c->cmd;
+    int p2count = 0;
+    int p1count = 0;
+    for (int i = 0; i < c->params_size; i++) {
+        if (i > c->pipe_index) {
+            if (i == c->pipe_index + 1) {
+                c2->cmd = c->params[i];
+            } else {
+                c2->params[i] = c->params[i];
+                p2count++;
+            }
+        } else if (i < c->pipe_index) {
+            c1->params[i] = c->params[i];
+            p1count++;
+        }
+    }
+    c1->params_size = p1count;
+    c1->amp_index = -1;
+    c1->pipe_index = -1;
+
+    printf("c1 cmd in fmt: %s\n", c1->cmd);
+
+    c2->params_size = p2count;
+    c2->amp_index = -1;
+    c2->pipe_index = -1;
+    arr[0] = c1;
+    arr[1] = c2;
+    return arr;
+}
+
+void exec_pipe(cmd_t* c) {
+    if (c == NULL) {
+        fprintf(stderr, "error: c is null\n");
+        return;
+    }
+    cmd_t** arr = fmt_pipe_cmd(c);
+    if (arr == NULL) {
+        fprintf(stderr, "error: arr is null\n");
+        return;
+    }
+    cmd_t* c1 = arr[0];
+    cmd_t* c2 = arr[1];
     
+    printf("c1 cmd: %s\n c2 cmd: %s\n", c1->cmd, c2->cmd);
+
+    int fd[2];
+    if (pipe(fd) == -1) {
+        fprintf(stderr, "error: pipe failed\n");
+        fflush(stderr);
+        fflush(stdout);
+        return;
+    }
+
+    int status;
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "error: fork() -> -1\n");
+        exit(1);
+    }
+    int max_len = MAX_LINE / 2 + 1;
+
+    if (pid > 0) {
+        close(fd[READ_END]);
+        dup2(fd[WRITE_END], STDOUT_FILENO);
+        
+        char* wr_params[max_len];
+        for (int i = 1; i < c1->params_size; i++) {
+            wr_params[i] = c1->params[i];
+        }
+        wr_params[0] = c1->cmd;
+        wr_params[c1->pipe_index] = NULL;
+        int err = execvp(c1->cmd, wr_params);
+        if (err == -1) {
+            fprintf(stderr, "error: unrecognized command - %s\n", c1->cmd);
+            fprintf(stderr, "with parameters: ");
+            for (int i = 1; i < max_len && wr_params[i] != NULL; i++) {
+                fprintf(stderr, "%s ", wr_params[i]);
+                wr_params[i] = NULL;
+            }
+            fprintf(stderr, "\n");
+            exit(0);
+        }
+    } else {
+        waitpid(pid, &status, 0);
+        close(fd[WRITE_END]);
+        //dup2(fd[READ_END], stdin);
+        char* buf;
+        read(fd[READ_END], buf, max_len);
+        printf("buf: %s\n", buf);
+        char* ch = strtok(buf, " ");
+        char* rd_params[MAX_LINE];
+        int i = 0;
+        for (i = 1; i < c2->params_size && c2->params[i - 1] != NULL; i++) {
+            rd_params[i] = c2->params[i - 1];
+        }
+        i = rd_params[i] != NULL ? ++i : i;
+        while (ch != NULL) {
+            strcpy(rd_params[i], ch);
+            ch = strtok(NULL, " ");
+        }
+        rd_params[0] = c2->cmd;
+        rd_params[i >= MAX_LINE ? MAX_LINE - 1 : i] = NULL;
+        int err = execvp(c2->cmd, rd_params);
+        if (err == -1) {
+            fprintf(stderr, "error: unrecognized command - %s\n", c2->cmd);
+            fprintf(stderr, "with parameters: ");
+            for (int i = 1; i < max_len && rd_params[i] != NULL; i++) {
+                fprintf(stderr, "%s ", rd_params[i]);
+                rd_params[i] = NULL;
+            }
+            fprintf(stderr, "\n");
+            exit(0);
+        }
+
+    }
 }
 
 void exec_cmd(cmd_t* c, char* args[]) {
@@ -76,7 +209,8 @@ void exec_cmd(cmd_t* c, char* args[]) {
                 exit(0);
             }
         } else if (c->pipe_index != -1) {
-            fmt_pipe(c);
+            printf("c %s\n", c->cmd);
+            exec_pipe(c);
         } else {
             char** new_params = fmt_params(c); // rework?
             int i = 1;
