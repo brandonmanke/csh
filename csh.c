@@ -20,8 +20,31 @@ typedef struct cmd_t {
     int    params_size;
 } cmd_t;
 
-// TODO
-void exec_cmd(cmd_t* c) {
+char** fmt_params(char** params, int size) {
+    char** new_params = NULL;
+    int i = 0;
+    int s;
+
+    if ((strcmp(params[0], "&") == 0) || (strcmp(params[0], "|") == 0)) {
+        i = 1;
+        new_params = malloc(size);
+        s = size;
+    } else {
+        new_params = malloc(size + 1);
+        s = size + 1;
+    }
+
+    for (int j = 0; i < s; i++) {
+        //printf("params %d - %s\n", i, params[i]);
+        new_params[j] = params[i];
+        j++;
+    }
+    new_params[s - 1] = NULL;
+
+    return new_params;
+}
+
+void exec_cmd(cmd_t* c, char* args[]) {
     if (c == NULL || c->cmd == NULL) {
         return;
     }
@@ -38,13 +61,46 @@ void exec_cmd(cmd_t* c) {
         char* ch = malloc((sizeof(bin_path) + sizeof(c->cmd)) / sizeof(char));
         strcat(ch, bin_path);
         strcat(ch, c->cmd);
-        // no params
-        int err = execlp(ch, c->cmd, NULL);
-        if (err == -1) {
-            fprintf(stderr, "error: unrecognized command - %s\n", c->cmd);
-            exit(0);
+
+        if (c->params == NULL || c->params_size == 0) {
+            int err = execlp(ch, c->cmd, NULL);
+            if (err == -1) {
+                fprintf(stderr, "error: unrecognized command - %s\n", c->cmd);
+                free(ch);
+                exit(0);
+            }
+        } else {
+            char** new_params = fmt_params(c->params, c->params_size); // rework?
+            int i = 1;
+            while (i < (MAX_LINE / 2) + 1 && new_params[i - 1] != NULL) {
+                args[i] = new_params[i - 1];
+                i++;
+            }
+            args[0] = c->cmd;
+            args[i] = NULL;
+
+            int err = execvp(c->cmd, args);
+            if (err == -1) {
+                fprintf(stderr, "error: unrecognized command - %s\n", c->cmd);
+                fprintf(stderr, "with parameters: ");
+                for (int i = 0; i < sizeof(new_params); i++) {
+                    fprintf(stderr, "%s ", new_params[i]);
+                    free(new_params[i]);
+                    new_params[i] = NULL;
+                }
+                free(new_params);
+                free(ch);
+                exit(0);
+            }
         }
     } else { // TODO check for '&'
+        if (c->params != NULL && c->params_size > 0) {
+            if (strcmp(c->params[0], "&") == 0) {
+
+            } else if (strcmp(c->params[0], "|") == 0) {
+
+            }
+        }
         wait(&status);
         //printf("status: %d\n", status);
         //waitpid(pid, &status, WNOHANG);
@@ -162,7 +218,7 @@ int main(void) {
             command->cmd, 
             command->params_size
         );*/
-        exec_cmd(command);
+        exec_cmd(command, args);
 
         free(command->cmd);
         free(command->params);
