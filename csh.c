@@ -45,6 +45,10 @@ char** fmt_params(cmd_t* c) {
     return new_params;
 }
 
+void fmt_pipe(cmd_t* c) {
+    
+}
+
 void exec_cmd(cmd_t* c, char* args[]) {
     if (c == NULL || c->cmd == NULL) {
         return;
@@ -68,8 +72,11 @@ void exec_cmd(cmd_t* c, char* args[]) {
             if (err == -1) {
                 fprintf(stderr, "error: unrecognized command - %s\n", c->cmd);
                 free(ch);
+                fflush(stdout);
                 exit(0);
             }
+        } else if (c->pipe_index != -1) {
+            fmt_pipe(c);
         } else {
             char** new_params = fmt_params(c); // rework?
             int i = 1;
@@ -84,28 +91,30 @@ void exec_cmd(cmd_t* c, char* args[]) {
             if (err == -1) {
                 fprintf(stderr, "error: unrecognized command - %s\n", c->cmd);
                 fprintf(stderr, "with parameters: ");
-                for (int j = 0; j < sizeof(new_params); j++) {
+                for (int j = 0; j < sizeof(new_params) && new_params[j] != NULL; j++) {
                     fprintf(stderr, "%s ", new_params[j]);
-                    free(new_params[j]);
                     new_params[j] = NULL;
                 }
-                free(new_params);
+                fprintf(stderr, "\n");
                 free(ch);
+                fflush(stdout);
                 exit(0);
             }
         }
     } else { // TODO check for '&'
-        if (c->params != NULL && c->params_size > 0) {
-            if (strcmp(c->params[0], "&") == 0) {
-
-            } else if (strcmp(c->params[0], "|") == 0) {
-
+        if (c->amp_index == -1) {
+            wait(&status);
+        } else {
+            printf("[1] Running: pid %d - %s ", pid, c->cmd);
+            for (int i = 0; i < c->params_size && c->params[i] != NULL; i++) {
+                printf("%s ", c->params[i]);
             }
+            printf("\n");
         }
-        wait(&status);
         //printf("status: %d\n", status);
         //waitpid(pid, &status, WNOHANG);
     }
+    fflush(stdout);
 }
 
 cmd_t* tokenize_str(char* fstr) {
@@ -212,7 +221,7 @@ int main(void) {
         if (fstr == NULL) {
             continue;
         }
-        if (strcmp(fstr, "quit") == 0) {
+        if (strcmp(fstr, "exit") == 0) {
             run_flag = 0;
             break;
         }
@@ -222,17 +231,13 @@ int main(void) {
             fprintf(stderr, "error: command is null\n");
             return 1;
         }
-        /*printf(
-            "cmd size: %lu\n cmd: %s\n params size: %d\n", 
-            sizeof(command), 
-            command->cmd, 
-            command->params_size
-        );*/
         exec_cmd(command, args);
+        printf("");
 
         free(command->cmd);
         free(command->params);
         free(command);
+        command = NULL;
         if (fstr != NULL) {
             free(fstr);
         }
