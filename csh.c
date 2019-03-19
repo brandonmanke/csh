@@ -18,26 +18,27 @@ typedef struct cmd_t {
     char*  cmd;
     char** params;
     int    params_size;
+    int    amp_index;
+    int    pipe_index;
 } cmd_t;
 
-char** fmt_params(char** params, int size) {
+char** fmt_params(cmd_t* c) {
     char** new_params = NULL;
-    int i = 0;
     int s;
 
-    if ((strcmp(params[0], "&") == 0) || (strcmp(params[0], "|") == 0)) {
-        i = 1;
-        new_params = malloc(size);
-        s = size;
+    if (c->amp_index != -1 || c->pipe_index != -1) {
+        new_params = malloc(c->params_size);
+        s = c->params_size;
     } else {
-        new_params = malloc(size + 1);
-        s = size + 1;
+        new_params = malloc(c->params_size + 1);
+        s = c->params_size + 1;
     }
 
-    for (int j = 0; i < s; i++) {
+    for (int i = 0; i < s; i++) {
         //printf("params %d - %s\n", i, params[i]);
-        new_params[j] = params[i];
-        j++;
+        if (i != c->amp_index && i != c->pipe_index) {
+            new_params[i] = c->params[i];
+        }
     }
     new_params[s - 1] = NULL;
 
@@ -70,7 +71,7 @@ void exec_cmd(cmd_t* c, char* args[]) {
                 exit(0);
             }
         } else {
-            char** new_params = fmt_params(c->params, c->params_size); // rework?
+            char** new_params = fmt_params(c); // rework?
             int i = 1;
             while (i < (MAX_LINE / 2) + 1 && new_params[i - 1] != NULL) {
                 args[i] = new_params[i - 1];
@@ -83,10 +84,10 @@ void exec_cmd(cmd_t* c, char* args[]) {
             if (err == -1) {
                 fprintf(stderr, "error: unrecognized command - %s\n", c->cmd);
                 fprintf(stderr, "with parameters: ");
-                for (int i = 0; i < sizeof(new_params); i++) {
-                    fprintf(stderr, "%s ", new_params[i]);
-                    free(new_params[i]);
-                    new_params[i] = NULL;
+                for (int j = 0; j < sizeof(new_params); j++) {
+                    fprintf(stderr, "%s ", new_params[j]);
+                    free(new_params[j]);
+                    new_params[j] = NULL;
                 }
                 free(new_params);
                 free(ch);
@@ -114,6 +115,10 @@ cmd_t* tokenize_str(char* fstr) {
     int pcount = 0;
     const int MAX_PSIZE = 16;
     char** p = malloc(MAX_PSIZE);
+
+    command->amp_index = -1;
+    command->pipe_index = -1;
+
     while(c != NULL) {
         if (*c != '\n') {
             if (count == 0) {
@@ -121,6 +126,11 @@ cmd_t* tokenize_str(char* fstr) {
                 strcpy(command->cmd, c);
                 count++;
             } else if (count != 0 && pcount < MAX_PSIZE) {
+                if (strcmp(c, "&") == 0) {
+                    command->amp_index = pcount;
+                } else if (strcmp(c, "|") == 0) {
+                    command->pipe_index = pcount;
+                }
                 p[pcount] = malloc(strlen(c) + 1);
                 p[pcount] = c;
                 pcount++;
